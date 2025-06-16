@@ -15,7 +15,7 @@ class Process(object):
         self.frame_out = np.zeros((10, 10, 3), np.uint8)
         self.samples = []
         self.buffer_size = 100
-        self.times = [] 
+        self.times = []
         self.data_buffer = []
         self.fps = 0
         self.fft = []
@@ -27,11 +27,13 @@ class Process(object):
         self.peaks = []
         self.fu = Face_utilities()
         self.sp = Signal_processing()
+        self.bpm_history = [] # New list to store BPM history with timestamps
+        self.last_export_time = time.time() # To control export frequency
 
         #self.red = np.zeros((256,256,3),np.uint8)
-        
+
     def extractColor(self, frame):
-        
+
         #r = np.mean(frame[:,:,0])
         g = np.mean(frame[:,:,1])
         #b = np.mean(frame[:,:,2])
@@ -102,37 +104,42 @@ class Process(object):
         
         # start calculating after the first 10 frames
         if L == self.buffer_size:
-            
+
             self.fps = float(L) / (self.times[-1] - self.times[0])#calculate HR using a true fps of processor of the computer, not the fps the camera provide
             even_times = np.linspace(self.times[0], self.times[-1], L)
-            
+
             processed = signal.detrend(processed)#detrend the signal to avoid interference of light change
             interpolated = np.interp(even_times, self.times, processed) #interpolation by 1
             interpolated = np.hamming(L) * interpolated#make the signal become more periodic (advoid spectral leakage)
             #norm = (interpolated - np.mean(interpolated))/np.std(interpolated)#normalization
             norm = interpolated/np.linalg.norm(interpolated)
             raw = np.fft.rfft(norm*30)#do real fft with the normalization multiplied by 10
-            
+
             self.freqs = float(self.fps) / L * np.arange(L / 2 + 1)
             freqs = 60. * self.freqs
-            
-            # idx_remove = np.where((freqs < 50) & (freqs > 180))
-            # raw[idx_remove] = 0
-            
+
+            # idx_remove = np.where((freqs < 50) & (freqs > 180))\n            # raw[idx_remove] = 0
+
             self.fft = np.abs(raw)**2#get amplitude spectrum
-        
-            idx = np.where((freqs > 50) & (freqs < 180))#the range of frequency that HR is supposed to be within 
+
+            idx = np.where((freqs > 50) & (freqs < 180))#the range of frequency that HR is supposed to be within
             pruned = self.fft[idx]
             pfreq = freqs[idx]
-            
-            self.freqs = pfreq 
+
+            self.freqs = pfreq
             self.fft = pruned
-            
+
             idx2 = np.argmax(pruned)#max in the range can be HR
-            
+
             self.bpm = self.freqs[idx2]
             self.bpms.append(self.bpm)
-            
+
+            # Record BPM every second
+            current_time = time.time()
+            if current_time - self.last_export_time >= 1:
+                self.bpm_history.append({"Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "Average BPM": self.bpm})
+                self.last_export_time = current_time
+
             processed = self.butter_bandpass_filter(processed,0.8,3,self.fps,order = 3)
             #ifft = np.fft.irfft(raw)
         self.samples = processed # multiply the signal with 5 for easier to see in the plot
@@ -153,12 +160,17 @@ class Process(object):
             # cv2.imshow("face", face_frame)
         return True
     
+    def export_bpm_to_excel(self, filename="heart_rate_data.xlsx"):
+        df = pd.DataFrame(self.bpm_history)
+        df.to_excel(filename, index=False)
+        print(f"心率数据已导出到 {filename}")
+
     def reset(self):
         self.frame_in = np.zeros((10, 10, 3), np.uint8)
         self.frame_ROI = np.zeros((10, 10, 3), np.uint8)
         self.frame_out = np.zeros((10, 10, 3), np.uint8)
         self.samples = []
-        self.times = [] 
+        self.times = []
         self.data_buffer = []
         self.fps = 0
         self.fft = []
@@ -166,6 +178,8 @@ class Process(object):
         self.t0 = time.time()
         self.bpm = 0
         self.bpms = []
+        self.bpm_history = [] # Reset history as well
+        self.last_export_time = time.time()
         
     def butter_bandpass(self, lowcut, highcut, fs, order=5):
         nyq = 0.5 * fs
