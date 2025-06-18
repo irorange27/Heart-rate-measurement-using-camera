@@ -27,6 +27,7 @@ class Process(object):
         self.peaks = []
         self.fu = Face_utilities()
         self.sp = Signal_processing()
+        self.start_time = time.time()  # ✅ 添加这一行
 
         #self.red = np.zeros((256,256,3),np.uint8)
         
@@ -179,37 +180,7 @@ class Process(object):
         b, a = self.butter_bandpass(lowcut, highcut, fs, order=order)
         y = signal.lfilter(b, a, data)
         return y 
-    
 
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+
         
         
