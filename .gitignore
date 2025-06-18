@@ -21,3 +21,5 @@ var/
 *.egg
 
 *.mp4
+
+*.xlsx

@@ -1,0 +1,15 @@
+#使用方法：conda env create -f environment.yml
+name: heart
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy==1.22.0
+  - scipy==1.10.0
+  - dlib
+  - imutils
+  - pip:
+    - pyqt5
+    - pyqtgraph
+    - opencv-python
