@@ -27,8 +27,12 @@ class Process(object):
         self.peaks = []
         self.fu = Face_utilities()
         self.sp = Signal_processing()
+
+        self.start_time = time.time()  # ✅ 添加这一行
+
         self.bpm_history = [] # New list to store BPM history with timestamps
         self.last_export_time = time.time() # To control export frequency
+
 
         #self.red = np.zeros((256,256,3),np.uint8)
 
@@ -193,37 +197,7 @@ class Process(object):
         b, a = self.butter_bandpass(lowcut, highcut, fs, order=order)
         y = signal.lfilter(b, a, data)
         return y 
-    
 
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+
         
         
