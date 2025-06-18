@@ -1,3 +1,5 @@
+dlib_dataset/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -21,5 +23,6 @@ var/
 *.egg
 
 *.mp4
-
+*.png
+*.csv
 *.xlsx

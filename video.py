@@ -50,7 +50,13 @@ class Video(object):
             cv2.putText(frame, "(Error: Can not load the video)",
                        (65,220), cv2.FONT_HERSHEY_PLAIN, 2, col)
         return frame
-        
-        
-        
-        
+
+    def get_position_seconds(self):
+        """Return the current position in the video in seconds"""
+        if hasattr(self, 'cap'):
+            # Get current position in milliseconds and convert to seconds
+            return self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+        return 0.0
+
+
+
