@@ -42,6 +42,3 @@ python GUI.py
 - Sudden change can cause incorrect HR calculation. In the most case, HR can be correctly detected after 10 seconds being stable infront of the camera
 - This github project is for study purpose only. For other purposes, please contact me at khanhhanguyen2310@gmail.com
 
-# 数据集地址
-
-- https://dlib.net/files/data/

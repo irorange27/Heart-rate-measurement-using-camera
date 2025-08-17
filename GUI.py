@@ -1,197 +1,270 @@
 import cv2
 import numpy as np
+from PyQt5 import QtCore
+
+from PyQt5.QtCore import QThread
+from PyQt5.QtGui import QFont, QImage, QPixmap
+from PyQt5.QtWidgets import QPushButton, QApplication, QComboBox, QLabel, QFileDialog, QStatusBar, QDesktopWidget, QMessageBox, QMainWindow
+
+import pyqtgraph as pg
+import sys
 import time
-from face_detection import FaceDetection
-from scipy import signal
-from face_utilities import Face_utilities
-from signal_processing import Signal_processing
-from imutils import face_utils
-import pandas as pd
-# from sklearn.decomposition import FastICA
+from process import Process
+from webcam import Webcam
+from video import Video
+from interface import waitKey, plotXY
 
-class Process(object):
+class GUI(QMainWindow, QThread):
     def __init__(self):
-        self.frame_in = np.zeros((10, 10, 3), np.uint8)
-        self.frame_ROI = np.zeros((10, 10, 3), np.uint8)
-        self.frame_out = np.zeros((10, 10, 3), np.uint8)
-        self.samples = []
-        self.buffer_size = 100
-        self.times = []
-        self.data_buffer = []
-        self.fps = 0
-        self.fft = []
-        self.freqs = []
-        self.t0 = time.time()
+        super(GUI,self).__init__()
+        self.initUI()
+        self.webcam = Webcam()
+        self.video = Video()
+        self.input = self.webcam
+        self.dirname = ""
+        print("Input: webcam")
+        self.statusBar.showMessage("Input: webcam",5000)
+        self.btnOpen.setEnabled(False)
+        self.process = Process()
+        self.status = False
+        self.frame = np.zeros((10,10,3),np.uint8)
+        #self.plot = np.zeros((10,10,3),np.uint8)
         self.bpm = 0
-        self.fd = FaceDetection()
-        self.bpms = []
-        self.peaks = []
-        self.fu = Face_utilities()
-        self.sp = Signal_processing()
-        self.bpm_history = [] # New list to store BPM history with timestamps
-        self.last_export_time = time.time() # To control export frequency
-
-        #self.red = np.zeros((256,256,3),np.uint8)
-
-    def extractColor(self, frame):
-
-        #r = np.mean(frame[:,:,0])
-        g = np.mean(frame[:,:,1])
-        #b = np.mean(frame[:,:,2])
-        #return r, g, b
-        return g
+        self.terminate = False
         
-    def run(self):
-        # frame, face_frame, ROI1, ROI2, status, mask = self.fd.face_detect(self.frame_in)
-        
-        frame = self.frame_in
-        ret_process = self.fu.no_age_gender_face_process(frame, "5")
-        if ret_process is None:
-            return False
-        rects, face, shape, aligned_face, aligned_shape = ret_process
-
-        (x, y, w, h) = face_utils.rect_to_bb(rects[0])
-        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
-        
-        if(len(aligned_shape)==68):
-            cv2.rectangle(aligned_face,(aligned_shape[54][0], aligned_shape[29][1]), #draw rectangle on right and left cheeks
-                    (aligned_shape[12][0],aligned_shape[33][1]), (0,255,0), 0)
-            cv2.rectangle(aligned_face, (aligned_shape[4][0], aligned_shape[29][1]), 
-                    (aligned_shape[48][0],aligned_shape[33][1]), (0,255,0), 0)
-        else:
-            cv2.rectangle(aligned_face, (aligned_shape[0][0],int((aligned_shape[4][1] + aligned_shape[2][1])/2)),
-                        (aligned_shape[1][0],aligned_shape[4][1]), (0,255,0), 0)
-            
-            cv2.rectangle(aligned_face, (aligned_shape[2][0],int((aligned_shape[4][1] + aligned_shape[2][1])/2)),
-                        (aligned_shape[3][0],aligned_shape[4][1]), (0,255,0), 0)
-        
-        for (x, y) in aligned_shape: 
-            cv2.circle(aligned_face, (x, y), 1, (0, 0, 255), -1)
-
-
-        ROIs = self.fu.ROI_extraction(aligned_face, aligned_shape)
-        green_val = self.sp.extract_color(ROIs)
-
-        self.frame_out = frame
-        self.frame_ROI = aligned_face
-        
-        # g1 = self.extractColor(ROI1)
-        # g2 = self.extractColor(ROI2)
-        #g3 = self.extractColor(ROI3)
-        
-        L = len(self.data_buffer)
-        
-        #calculate average green value of 2 ROIs
-        #r = (r1+r2)/2
-        #g = (g1+g2)/2
-        #b = (b1+b2)/2
-
-        g = green_val
-        
-        if(abs(g-np.mean(self.data_buffer))>10 and L>99): #remove sudden change, if the avg value change is over 10, use the mean of the data_buffer
-            g = self.data_buffer[-1]
-        
-        self.times.append(time.time() - self.t0)
-        self.data_buffer.append(g)
-
-        #only process in a fixed-size buffer
-        if L > self.buffer_size:
-            self.data_buffer = self.data_buffer[-self.buffer_size:]
-            self.times = self.times[-self.buffer_size:]
-            self.bpms = self.bpms[-self.buffer_size//2:]
-            L = self.buffer_size
-            
-        processed = np.array(self.data_buffer)
-        
-        # start calculating after the first 10 frames
-        if L == self.buffer_size:
-
-            self.fps = float(L) / (self.times[-1] - self.times[0])#calculate HR using a true fps of processor of the computer, not the fps the camera provide
-            even_times = np.linspace(self.times[0], self.times[-1], L)
-
-            processed = signal.detrend(processed)#detrend the signal to avoid interference of light change
-            interpolated = np.interp(even_times, self.times, processed) #interpolation by 1
-            interpolated = np.hamming(L) * interpolated#make the signal become more periodic (advoid spectral leakage)
-            #norm = (interpolated - np.mean(interpolated))/np.std(interpolated)#normalization
-            norm = interpolated/np.linalg.norm(interpolated)
-            raw = np.fft.rfft(norm*30)#do real fft with the normalization multiplied by 10
-
-            self.freqs = float(self.fps) / L * np.arange(L / 2 + 1)
-            freqs = 60. * self.freqs
-
-            # idx_remove = np.where((freqs < 50) & (freqs > 180))\n            # raw[idx_remove] = 0
-
-            self.fft = np.abs(raw)**2#get amplitude spectrum
-
-            idx = np.where((freqs > 50) & (freqs < 180))#the range of frequency that HR is supposed to be within
-            pruned = self.fft[idx]
-            pfreq = freqs[idx]
-
-            self.freqs = pfreq
-            self.fft = pruned
-
-            idx2 = np.argmax(pruned)#max in the range can be HR
-
-            self.bpm = self.freqs[idx2]
-            self.bpms.append(self.bpm)
-
-            # Record BPM every second
-            current_time = time.time()
-            if current_time - self.last_export_time >= 1:
-                self.bpm_history.append({"Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "Average BPM": self.bpm})
-                self.last_export_time = current_time
-
-            processed = self.butter_bandpass_filter(processed,0.8,3,self.fps,order = 3)
-            #ifft = np.fft.irfft(raw)
-        self.samples = processed # multiply the signal with 5 for easier to see in the plot
-        #TODO: find peaks to draw HR-like signal.
-        
-        # if(mask.shape[0]!=10): 
-        #     out = np.zeros_like(aligned_face)
-        #     mask = mask.astype(np.bool)
-        #     out[mask] = aligned_face[mask]
-        #     if(processed[-1]>np.mean(processed)):
-        #         out[mask,2] = 180 + processed[-1]*10
-        #     aligned_face[mask] = out[mask]
-            
-            
-        #cv2.imshow("face", face_frame)
-        #out = cv2.add(face_frame,out)
-        # else:
-            # cv2.imshow("face", face_frame)
-        return True
+    def initUI(self):
     
-    def export_bpm_to_excel(self, filename="heart_rate_data.xlsx"):
-        df = pd.DataFrame(self.bpm_history)
-        df.to_excel(filename, index=False)
-        print(f"心率数据已导出到 {filename}")
-
-    def reset(self):
-        self.frame_in = np.zeros((10, 10, 3), np.uint8)
-        self.frame_ROI = np.zeros((10, 10, 3), np.uint8)
-        self.frame_out = np.zeros((10, 10, 3), np.uint8)
-        self.samples = []
-        self.times = []
-        self.data_buffer = []
-        self.fps = 0
-        self.fft = []
-        self.freqs = []
-        self.t0 = time.time()
-        self.bpm = 0
-        self.bpms = []
-        self.bpm_history = [] # Reset history as well
-        self.last_export_time = time.time()
+        #set font
+        font = QFont()
+        font.setPointSize(16)
         
-    def butter_bandpass(self, lowcut, highcut, fs, order=5):
-        nyq = 0.5 * fs
-        low = lowcut / nyq
-        high = highcut / nyq
-        b, a = signal.butter(order, [low, high], btype='band')
-        return b, a
+        #widgets
+        self.btnStart = QPushButton("Start", self)
+        self.btnStart.move(440,520)
+        self.btnStart.setFixedWidth(200)
+        self.btnStart.setFixedHeight(50)
+        self.btnStart.setFont(font)
+        self.btnStart.clicked.connect(self.run)
+        
+        self.btnOpen = QPushButton("Open", self)
+        self.btnOpen.move(230,520)
+        self.btnOpen.setFixedWidth(200)
+        self.btnOpen.setFixedHeight(50)
+        self.btnOpen.setFont(font)
+        self.btnOpen.clicked.connect(self.openFileDialog)
+        
+        self.cbbInput = QComboBox(self)
+        self.cbbInput.addItem("Webcam")
+        self.cbbInput.addItem("Video")
+        self.cbbInput.setCurrentIndex(0)
+        self.cbbInput.setFixedWidth(200)
+        self.cbbInput.setFixedHeight(50)
+        self.cbbInput.move(20,520)
+        self.cbbInput.setFont(font)
+        self.cbbInput.activated.connect(self.selectInput)
+        #-------------------
+        
+        self.lblDisplay = QLabel(self) #label to show frame from camera
+        self.lblDisplay.setGeometry(10,10,640,480)
+        self.lblDisplay.setStyleSheet("background-color: #000000")
+        
+        self.lblROI = QLabel(self) #label to show face with ROIs
+        self.lblROI.setGeometry(660,10,200,200)
+        self.lblROI.setStyleSheet("background-color: #000000")
+        
+        self.lblHR = QLabel(self) #label to show HR change over time
+        self.lblHR.setGeometry(900,20,300,40)
+        self.lblHR.setFont(font)
+        self.lblHR.setText("Frequency: ")
+        
+        self.lblHR2 = QLabel(self) #label to show stable HR
+        self.lblHR2.setGeometry(900,70,300,40)
+        self.lblHR2.setFont(font)
+        self.lblHR2.setText("Heart rate: ")
+        
+        # self.lbl_Age = QLabel(self) #label to show stable HR
+        # self.lbl_Age.setGeometry(900,120,300,40)
+        # self.lbl_Age.setFont(font)
+        # self.lbl_Age.setText("Age: ")
+        
+        # self.lbl_Gender = QLabel(self) #label to show stable HR
+        # self.lbl_Gender.setGeometry(900,170,300,40)
+        # self.lbl_Gender.setFont(font)
+        # self.lbl_Gender.setText("Gender: ")
+        
+        #dynamic plot
+        self.signal_Plt = pg.PlotWidget(self)
+        
+        self.signal_Plt.move(660,220)
+        self.signal_Plt.resize(480,192)
+        self.signal_Plt.setLabel('bottom', "Signal") 
+        
+        self.fft_Plt = pg.PlotWidget(self)
+        
+        self.fft_Plt.move(660,425)
+        self.fft_Plt.resize(480,192)
+        self.fft_Plt.setLabel('bottom', "FFT") 
+        
+        self.timer = pg.QtCore.QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(200)
+        
+        
+        self.statusBar = QStatusBar()
+        self.statusBar.setFont(font)
+        self.setStatusBar(self.statusBar)
+
+        #config main window
+        self.setGeometry(100,100,1160,640)
+        #self.center()
+        self.setWindowTitle("Heart rate monitor")
+        self.show()
+        
+        
+    def update(self):
+        self.signal_Plt.clear()
+        self.signal_Plt.plot(self.process.samples[20:],pen='g')
+
+        self.fft_Plt.clear()
+        self.fft_Plt.plot(np.column_stack((self.process.freqs, self.process.fft)), pen = 'g')
+        
+    def center(self):
+        qr = self.frameGeometry()
+        cp = QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
+        
+    def closeEvent(self, event):
+        reply = QMessageBox.question(self,"Message", "Are you sure want to quit",
+            QMessageBox.Yes|QMessageBox.No, QMessageBox.Yes)
+        if reply == QMessageBox.Yes:
+            event.accept()
+            self.input.stop()
+            self.process.export_bpm_to_excel() # Call the export method here
+            # cv2.destroyAllWindows()\n            self.terminate = True
+            sys.exit()
+
+        else:
+            event.ignore()
+    
+    def selectInput(self):
+        self.reset()
+        if self.cbbInput.currentIndex() == 0:
+            self.input = self.webcam
+            print("Input: webcam")
+            self.btnOpen.setEnabled(False)
+            #self.statusBar.showMessage("Input: webcam",5000)
+        elif self.cbbInput.currentIndex() == 1:
+            self.input = self.video
+            print("Input: video")
+            self.btnOpen.setEnabled(True)
+            #self.statusBar.showMessage("Input: video",5000)   
+    
+    # def make_bpm_plot(self):
+        # plotXY([[self.process.times[20:],
+                     # self.process.samples[20:]],
+                    # [self.process.freqs,
+                     # self.process.fft]],
+                    # labels=[False, True],
+                    # showmax=[False, "bpm"],
+                    # label_ndigits=[0, 0],
+                    # showmax_digits=[0, 1],
+                    # skip=[3, 3],
+                    # name="Plot",
+                    # bg=None)
+        
+        # fplot = QImage(self.plot, 640, 280, QImage.Format_RGB888)
+        # self.lblPlot.setGeometry(10,520,640,280)
+        # self.lblPlot.setPixmap(QPixmap.fromImage(fplot))
+    
+    def key_handler(self):
+        """
+        cv2 window must be focused for keypresses to be detected.
+        """
+        self.pressed = waitKey(1) & 255  # wait for keypress for 10 ms
+        if self.pressed == 27:  # exit program on 'esc'
+            print("[INFO] Exiting")
+            self.webcam.stop()
+            sys.exit()
+    
+    def openFileDialog(self):
+        self.dirname = QFileDialog.getOpenFileName(self, 'OpenFile')
+        #self.statusBar.showMessage("File name: " + self.dirname,5000)
+    
+    def reset(self):
+        self.process.reset()
+        self.lblDisplay.clear()
+        self.lblDisplay.setStyleSheet("background-color: #000000")
+
+    def main_loop(self):
+        frame = self.input.get_frame()
+
+        self.process.frame_in = frame
+        if self.terminate == False:
+            ret = self.process.run()
+        
+        # cv2.imshow("Processed", frame)
+        if ret == True:
+            self.frame = self.process.frame_out #get the frame to show in GUI
+            self.f_fr = self.process.frame_ROI #get the face to show in GUI
+            #print(self.f_fr.shape)
+            self.bpm = self.process.bpm #get the bpm change over the time
+        else:
+            self.frame = frame
+            self.f_fr = np.zeros((10, 10, 3), np.uint8)
+            self.bpm = 0
+        
+        self.frame = cv2.cvtColor(self.frame, cv2.COLOR_RGB2BGR)
+        cv2.putText(self.frame, "FPS "+str(float("{:.2f}".format(self.process.fps))),
+                       (20,460), cv2.FONT_HERSHEY_PLAIN, 1.5, (0, 255, 255),2)
+        img = QImage(self.frame, self.frame.shape[1], self.frame.shape[0], 
+                        self.frame.strides[0], QImage.Format_RGB888)
+        self.lblDisplay.setPixmap(QPixmap.fromImage(img))
+        
+        self.f_fr = cv2.cvtColor(self.f_fr, cv2.COLOR_RGB2BGR)
+        #self.lblROI.setGeometry(660,10,self.f_fr.shape[1],self.f_fr.shape[0])
+        self.f_fr = np.transpose(self.f_fr,(0,1,2)).copy()
+        f_img = QImage(self.f_fr, self.f_fr.shape[1], self.f_fr.shape[0], 
+                       self.f_fr.strides[0], QImage.Format_RGB888)
+        self.lblROI.setPixmap(QPixmap.fromImage(f_img))
+        
+        self.lblHR.setText("Freq: " + str(float("{:.2f}".format(self.bpm))))
+        
+        if self.process.bpms.__len__() >50:
+            if(max(self.process.bpms-np.mean(self.process.bpms))<5): #show HR if it is stable -the change is not over 5 bpm- for 3s
+                self.lblHR2.setText("Heart rate: " + str(float("{:.2f}".format(np.mean(self.process.bpms)))) + " bpm")
+
+        #self.make_bpm_plot()#need to open a cv2.imshow() window to handle a pause 
+        #QtTest.QTest.qWait(10)#wait for the GUI to respond
+        self.key_handler()  #if not the GUI cant show anything
+
+    def run(self, input):
+        print("run")
+        self.reset()
+        input = self.input
+        self.input.dirname = self.dirname
+        if self.input.dirname == "" and self.input == self.video:
+            print("choose a video first")
+            #self.statusBar.showMessage("choose a video first",5000)
+            return
+        if self.status == False:
+            self.status = True
+            input.start()
+            self.btnStart.setText("Stop")
+            self.cbbInput.setEnabled(False)
+            self.btnOpen.setEnabled(False)
+            self.lblHR2.clear()
+            while self.status == True:
+                self.main_loop()
+
+        elif self.status == True:
+            self.status = False
+            input.stop()
+            self.btnStart.setText("Start")
+            self.cbbInput.setEnabled(True)
 
 
-    def butter_bandpass_filter(self, data, lowcut, highcut, fs, order=5):
-        b, a = self.butter_bandpass(lowcut, highcut, fs, order=order)
-        y = signal.lfilter(b, a, data)
-        return y 
- 
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = GUI()
+    sys.exit(app.exec_())
