@@ -77,7 +77,7 @@ class Signal_processing():
         
         '''
         L = len(data_buffer)
-
+        _HAS_CFFT=False
         # 使用 C 实现的 RFFT 功率谱（零填充到 2 的幂），失败则回退到 numpy
         if _HAS_CFFT:
             try:

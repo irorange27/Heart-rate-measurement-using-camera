@@ -5,6 +5,7 @@ import time
 from process import Process
 from video import Video
 import argparse
+from datetime import datetime
 from signal_processing import Signal_processing
 
 
@@ -14,7 +15,7 @@ def process_video(video_path, window_type='hamming', buffer_size=100, output_fil
     video_input.start()
     
     # Initialize processor with window function parameter
-    processor = Process(window_type=window_type, buffer_size=buffer_size)
+    processor = Process()
 
     timestamps = []
     bpm_results = []
@@ -52,7 +53,8 @@ def process_video(video_path, window_type='hamming', buffer_size=100, output_fil
         video_input.stop()
 
     # 保存结果
-    save_to = output_file if output_file else "bpm_output.csv"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # 20250818_223045
+    save_to = output_file if output_file else f"bpm_output_{timestamp}.csv"
     with open(save_to, "w") as f:
         f.write("time(s),bpm\n")
         for t, b in zip(timestamps, bpm_results):
@@ -71,7 +73,7 @@ def process_video(video_path, window_type='hamming', buffer_size=100, output_fil
             fps = len(timestamps) / (timestamps[-1] - timestamps[0])
             
         # Generate comparison of window functions
-        results = sp.compare_window_functions(last_segment, fps)
+        #results = sp.compare_window_functions(last_segment, fps)
         print(f"Window function comparison saved to window_comparison.png")
         
         # TODO: implement buffer size tradeoff analysis if needed
